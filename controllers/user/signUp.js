@@ -59,7 +59,7 @@ const signUp = async (req, res) => {
         // Xóa mật khẩu trước khi gửi phản hồi
         req.body.password = undefined;
         return res.json({
-            message: "đăng kí thành công",
+            message: "!",
             success: true
         });
     } catch (error) {

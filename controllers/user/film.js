@@ -101,68 +101,73 @@ export const filmInfo = async (req, res) => {
 export const filmShowTimeInfo = async (req, res) => {
     const regionId = req.params.khuVuc_id;
     const filmId = req.params.id;
-    // Truy vấn MySQL
-    const query = `
-        SELECT cluster_name,cinemas.cinema_id,cinema_name,address,show_date,show_time,showtime_id
-        FROM cinemas inner join cinema_clusters on cinemas.cluster_id = cinema_clusters.cluster_id
-        inner join showtimes on cinemas.cinema_id = showtimes.cinema_id
-        WHERE region_id = ? and film_id = ?
-    `;
 
-    //     SELECT cluster_name, cinemas.cinema_id, cinema_name, address, show_date, show_time, showtime_id
-    // FROM cinemas 
-    // INNER JOIN cinema_clusters ON cinemas.cluster_id = cinema_clusters.cluster_id
-    // INNER JOIN showtimes ON cinemas.cinema_id = showtimes.cinema_id
-    // WHERE region_id = ? 
-    //   AND film_id = ? 
-    //   AND CONCAT(show_date, ' ', show_time) > CURRENT_TIMESTAMP
-    //   AND show_date <= (
-    //     SELECT MIN(show_date) + INTERVAL 4 DAY 
-    //     FROM showtimes 
-    //     WHERE region_id = ? 
-    //       AND film_id = ?
-    //   );
+    // Lấy ngày hôm nay và giờ hiện tại
+    const today = new Date();
+    const currentTime = today.toTimeString().split(' ')[0]; // Định dạng hh:mm:ss
+
+    // Khởi tạo mảng 5 ngày tiếp theo
+    const formattedDays = Array.from({ length: 6 }, (_, i) => {
+        const futureDate = new Date();
+        futureDate.setDate(today.getDate() + i);
+        const weekday = futureDate.toLocaleDateString('en', { weekday: 'long' });
+        const day = futureDate.getDate();
+        const month = futureDate.getMonth() + 1;
+        const year = futureDate.getFullYear();
+        return `${weekday} ${day}-${month}-${year}`;
+    });
+
+    // Khởi tạo đối tượng postOut với các ngày
+    const postOut = {};
+    formattedDays.forEach(day => {
+        postOut[day] = {}; // Đảm bảo mỗi ngày đều được khởi tạo
+    });
+
+    const query = `
+        SELECT cluster_name, cinemas.cinema_id, cinema_name, address, show_date, show_time, showtime_id
+        FROM cinemas
+        INNER JOIN cinema_clusters ON cinemas.cluster_id = cinema_clusters.cluster_id
+        INNER JOIN showtimes ON cinemas.cinema_id = showtimes.cinema_id
+        WHERE region_id = ? AND film_id = ?
+    `;
 
     connection.query(query, [regionId, filmId], (err, results) => {
         if (err) {
             return res.status(500).json({ error: 'Database query failed' });
         }
 
-        // Xử lý kết quả
-        const postOut = {};
-
+        // Xử lý kết quả truy vấn
         results.forEach(row => {
             const { cluster_name, cinema_id, cinema_name, address, show_date, show_time, showtime_id } = row;
 
-            // Chuyển đổi show_date thành định dạng YYYY-MM-DD
-            // new Date(show_date).toISOString().split('T')[0];
+            // Tạo định dạng ngày hiển thị
             const date = new Date(show_date);
-            const weekday = date.toLocaleDateString('en', { weekday: 'long' }); // Lấy thứ bằng tiếng Việt
-            const day = date.getDate(); // Lấy ngày
-            const month = date.getMonth() + 1; // Lấy tháng (thêm 1 vì getMonth() trả về từ 0-11)
+            const weekday = date.toLocaleDateString('en', { weekday: 'long' });
+            const day = date.getDate();
+            const month = date.getMonth() + 1;
             const year = date.getFullYear();
+            const formattedShowDate = `${weekday} ${day}-${month}-${year}`;
 
-            const formattedShowDate = weekday + " " + day + "-" + month + "-" + year
-
-            // Kiểm tra nếu cluster chưa tồn tại, tạo một đối tượng trống
-            if (!postOut[formattedShowDate]) {
-                postOut[formattedShowDate] = {};
+            // Bỏ qua nếu ngày không nằm trong 5 ngày hoặc giờ chiếu không hợp lệ
+            if (!postOut[formattedShowDate]) return; // Ngày không hợp lệ
+            if (formattedShowDate === formattedDays[0] && show_time <= currentTime) {
+                return; // Giờ chiếu nhỏ hơn giờ hiện tại trong ngày hôm nay
             }
 
-            // Kiểm tra nếu cinema_id chưa tồn tại trong cluster, tạo đối tượng cho rạp đó
+            // Khởi tạo cluster_name nếu chưa tồn tại
             if (!postOut[formattedShowDate][cluster_name]) {
-                postOut[formattedShowDate][cluster_name] = {}
+                postOut[formattedShowDate][cluster_name] = {};
             }
 
-            // Kiểm tra nếu cinema_id chưa tồn tại trong cluster, tạo đối tượng cho rạp đó
+            // Khởi tạo cinema_name nếu chưa tồn tại
             if (!postOut[formattedShowDate][cluster_name][cinema_name]) {
                 postOut[formattedShowDate][cluster_name][cinema_name] = {
                     address: address,
                     show_time: []
-                }
+                };
             }
 
-            // Thêm show_time vào mảng showtimes cho show_date tương ứng
+            // Thêm show_time vào mảng show_time
             postOut[formattedShowDate][cluster_name][cinema_name].show_time.push({
                 show_time: show_time,
                 showtime_id: showtime_id,
@@ -172,7 +177,7 @@ export const filmShowTimeInfo = async (req, res) => {
 
         return res.json(postOut);
     });
-}
+};
 
 export const getComment = async (req, res) => {
     const filmId = req.params.id;
@@ -273,6 +278,7 @@ export const phim = async (req, res) => {
         query += " AND category_id = ?";
         params.push(categoryId);
     }
+    query+=" and films.film_type in (1,2,0)"
     query += " GROUP BY films.film_id";
     connection.query(query, params, (error, results) => {
         if (error) {
@@ -337,7 +343,7 @@ export const filmType = async (req, res) => {
     FROM films
     INNER JOIN category_film ON category_film.film_id = films.film_id
     INNER JOIN film_evaluate ON film_evaluate.film_id = films.film_id
-    WHERE category_film.category_id = ?
+    WHERE  films.film_type in (1,2) and category_film.category_id = ?
     `;
 
     connection.query(query, [category_id], (error, results) => {

@@ -1,5 +1,4 @@
 import cookieParser from "cookie-parser";
-import cors from "cors";
 import { config } from "dotenv";
 import express, { json } from "express";
 import session from 'express-session';
@@ -21,7 +20,7 @@ app.use(session({
 
 config();
 
-const PORT = process.env.PORT;
+const PORT = 7777;
 
 // Tạo __dirname và __filename trong môi trường ES module
 const __filename = fileURLToPath(import.meta.url);

@@ -72,8 +72,10 @@ export const newAboard = async (req, res) => {
 export const NewDetail = async (req, res) => {  
     const new_id = req.params.new_id
     let query = `
-    select * from news
-    where new_id= ?
+    SELECT news.new_id, news.film_id, news.new_content, news.new_img, news.new_time, users.username
+ from news
+ inner join users on users.user_id = news.user_id
+ where new_id = ?
     `;
     
     connection.query(query, [new_id],(error, results) => {
@@ -93,18 +95,16 @@ export const NewDetail = async (req, res) => {
 export const NewRelate = async (req, res) => {  
     const film_id = req.params.film_id
     let query = `
-    select * from news
-    where film_id= ?
+    SELECT news.new_id, news.new_header,news.new_footer, news.film_id, news.new_content, news.new_img, news.new_time, users.username
+    from news
+    inner join users on users.user_id = news.user_id
+    where film_id = ?
     `;
     
     connection.query(query, [film_id],(error, results) => {
         if (error) {
             console.error('Error in SELECT query:', error);
             return res.status(500).json({ error: 'Internal server error' });
-        }
-        
-        if (results.length === 0) {
-            return res.status(404).json({ error: 'Actor not found' });
         }
         
         return res.json(results);

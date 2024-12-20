@@ -6,28 +6,58 @@ async function updateSeatStatus(showtime_id, bookedSeat, reserved_until) {
     try {
         // Chuyển đổi bookedSeat thành chuỗi để sử dụng trong câu truy vấn
         const seatIds = bookedSeat.map(seat => seat.seat_id).join(',');
-        // Thực hiện join các bảng cần thiết để lấy thông tin
+
+        // Kiểm tra xem có ghế nào đã được giữ hoặc đã được đặt không
+        const [rows] = await connection.promise().query(`
+            SELECT seat_id, seat_status, reserved_until 
+            FROM seat_status 
+            WHERE showtime_id = ? AND seat_id IN (${seatIds}) AND (seat_status = 1 OR reserved_until > NOW())
+        `, [showtime_id]);
+
+        if (rows.length > 0) {
+            // Có ghế không thể giữ
+            return { success: false, message: 'Some seats are already reserved or booked', conflictedSeats: rows };
+        }
+
+        // Cập nhật trạng thái ghế
         await connection.promise().query(`
-            update seat_status set reserved_until = ? where showtime_id = ? AND seat_id IN (${seatIds})
+            UPDATE seat_status 
+            SET reserved_until = ? 
+            WHERE showtime_id = ? AND seat_id IN (${seatIds})
         `, [reserved_until, showtime_id]);
+
+        return { success: true };
 
     } catch (error) {
         console.error('Lỗi khi cập nhật trạng thái ghế:', error);
+        throw error;
     }
 }
 
 export const giuGhe = async (req, res) => {
     const { showtime_id, bookedSeat } = req.body;
     const reserved_until = new Date(Date.now() + 5 * 60 * 1000); // Thời gian hiện tại + 5 phút
+
     try {
-        // Cập nhật trạng thái ghế thành 1 (đã đặt)
-        await updateSeatStatus(showtime_id, bookedSeat, reserved_until);
+        // Gọi hàm updateSeatStatus để kiểm tra và cập nhật trạng thái ghế
+        const result = await updateSeatStatus(showtime_id, bookedSeat, reserved_until);
+
+        if (!result.success) {
+            return res.json({ 
+                success: false, 
+                message: result.message, 
+                conflictedSeats: result.conflictedSeats 
+            });
+        }
+
         return res.json({ success: true });
+
     } catch (error) {
-        console.error(error);
+        console.error('Error reserving seats:', error);
         return res.status(500).json({ success: false, message: 'Error reserving seats' });
     }
-}
+};
+
 
 export const QRPayment = async (req, res) => {
     const { showtime_id, amount: total_amount, selectedSeats, selectedCombos } = req.body;

@@ -1,6 +1,7 @@
+import { verifyToken, isTokenExpired } from "./JWT.js";
+import { systemConfig } from "../config/system.js";
 import dotenv from "dotenv";
 import connection from "../models/SQLConnection.js";
-import { isTokenExpired, verifyToken } from "./JWT.js";
 dotenv.config();
 
 const SECRET_CODE = process.env.SECRET_CODE

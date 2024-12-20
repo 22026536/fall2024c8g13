@@ -101,28 +101,29 @@ export const filmInfo = async (req, res) => {
 export const filmShowTimeInfo = async (req, res) => {
     const regionId = req.params.khuVuc_id;
     const filmId = req.params.id;
-
-    // Lấy ngày hôm nay và 4 ngày tiếp theo
-    const today = new Date();
-    const days = Array.from({ length: 5 }, (_, i) => {
-        const date = new Date();
-        date.setDate(today.getDate() + i);
-        return date;
-    });
-
-    // Định dạng ngày thành YYYY-MM-DD
-    const formattedDays = days.map(day => day.toISOString().split('T')[0]);
-
-    // Truy vấn MySQL để lấy dữ liệu lịch chiếu
+    // Truy vấn MySQL
     const query = `
-        SELECT cluster_name, cinemas.cinema_id, cinema_name, address, show_date, show_time, showtime_id
-        FROM cinemas
-        INNER JOIN cinema_clusters ON cinemas.cluster_id = cinema_clusters.cluster_id
-        INNER JOIN showtimes ON cinemas.cinema_id = showtimes.cinema_id
-        WHERE region_id = ? AND film_id = ? AND show_date BETWEEN ? AND ?
+        SELECT cluster_name,cinemas.cinema_id,cinema_name,address,show_date,show_time,showtime_id
+        FROM cinemas inner join cinema_clusters on cinemas.cluster_id = cinema_clusters.cluster_id
+        inner join showtimes on cinemas.cinema_id = showtimes.cinema_id
+        WHERE region_id = ? and film_id = ?
     `;
 
-    connection.query(query, [regionId, filmId, formattedDays[0], formattedDays[4]], (err, results) => {
+    //     SELECT cluster_name, cinemas.cinema_id, cinema_name, address, show_date, show_time, showtime_id
+    // FROM cinemas 
+    // INNER JOIN cinema_clusters ON cinemas.cluster_id = cinema_clusters.cluster_id
+    // INNER JOIN showtimes ON cinemas.cinema_id = showtimes.cinema_id
+    // WHERE region_id = ? 
+    //   AND film_id = ? 
+    //   AND CONCAT(show_date, ' ', show_time) > CURRENT_TIMESTAMP
+    //   AND show_date <= (
+    //     SELECT MIN(show_date) + INTERVAL 4 DAY 
+    //     FROM showtimes 
+    //     WHERE region_id = ? 
+    //       AND film_id = ?
+    //   );
+
+    connection.query(query, [regionId, filmId], (err, results) => {
         if (err) {
             return res.status(500).json({ error: 'Database query failed' });
         }
@@ -130,59 +131,48 @@ export const filmShowTimeInfo = async (req, res) => {
         // Xử lý kết quả
         const postOut = {};
 
-        // Tạo cấu trúc dữ liệu mặc định với mảng rỗng cho từng ngày
-        formattedDays.forEach(day => {
-            const date = new Date(day);
-            const weekday = date.toLocaleDateString('en', { weekday: 'long' });
-            const formattedShowDate = `${weekday} ${date.getDate()}-${date.getMonth() + 1}-${date.getFullYear()}`;
-            postOut[formattedShowDate] = [];
-        });
-
-        // Nhóm kết quả theo ngày
         results.forEach(row => {
             const { cluster_name, cinema_id, cinema_name, address, show_date, show_time, showtime_id } = row;
-            const showDate = new Date(show_date);
-            const formattedShowDate = `${showDate.toLocaleDateString('en', { weekday: 'long' })} ${showDate.getDate()}-${showDate.getMonth() + 1}-${showDate.getFullYear()}`;
 
-            // Bỏ qua lịch chiếu ngày hôm nay nhưng giờ nhỏ hơn giờ hiện tại
-            if (formattedDays[0] === show_date && new Date(`1970-01-01T${show_time}`) <= today) {
-                return;
-            }
+            // Chuyển đổi show_date thành định dạng YYYY-MM-DD
+            // new Date(show_date).toISOString().split('T')[0];
+            const date = new Date(show_date);
+            const weekday = date.toLocaleDateString('en', { weekday: 'long' }); // Lấy thứ bằng tiếng Việt
+            const day = date.getDate(); // Lấy ngày
+            const month = date.getMonth() + 1; // Lấy tháng (thêm 1 vì getMonth() trả về từ 0-11)
+            const year = date.getFullYear();
 
-            // Thêm thông tin lịch chiếu vào cấu trúc
+            const formattedShowDate = weekday + " " + day + "-" + month + "-" + year
+
+            // Kiểm tra nếu cluster chưa tồn tại, tạo một đối tượng trống
             if (!postOut[formattedShowDate]) {
-                postOut[formattedShowDate] = [];
+                postOut[formattedShowDate] = {};
             }
 
-            const cluster = postOut[formattedShowDate].find(c => c.cluster_name === cluster_name);
-            if (!cluster) {
-                postOut[formattedShowDate].push({
-                    cluster_name,
-                    cinemas: []
-                });
+            // Kiểm tra nếu cinema_id chưa tồn tại trong cluster, tạo đối tượng cho rạp đó
+            if (!postOut[formattedShowDate][cluster_name]) {
+                postOut[formattedShowDate][cluster_name] = {}
             }
 
-            const cinema = cluster.cinemas.find(c => c.cinema_id === cinema_id);
-            if (!cinema) {
-                cluster.cinemas.push({
-                    cinema_id,
-                    cinema_name,
-                    address,
-                    show_times: []
-                });
+            // Kiểm tra nếu cinema_id chưa tồn tại trong cluster, tạo đối tượng cho rạp đó
+            if (!postOut[formattedShowDate][cluster_name][cinema_name]) {
+                postOut[formattedShowDate][cluster_name][cinema_name] = {
+                    address: address,
+                    show_time: []
+                }
             }
 
-            cinema.show_times.push({
-                show_time,
-                showtime_id,
-                seatPrice: calculateTicketPrice('0', showDate.toLocaleDateString('en', { weekday: 'long' }), show_time)
+            // Thêm show_time vào mảng showtimes cho show_date tương ứng
+            postOut[formattedShowDate][cluster_name][cinema_name].show_time.push({
+                show_time: show_time,
+                showtime_id: showtime_id,
+                seatPrice: calculateTicketPrice('0', weekday, show_time)
             });
         });
 
         return res.json(postOut);
     });
-};
-
+}
 
 export const getComment = async (req, res) => {
     const filmId = req.params.id;
